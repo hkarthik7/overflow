@@ -1,22 +1,28 @@
 using System.Security.Claims;
+using Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QuestionService.Data;
 using QuestionService.DTOs;
 using QuestionService.Models;
+using QuestionService.Services;
+using Wolverine;
 
 namespace QuestionService.Controllers
 {
     [ApiController]
     [Route("[controller]")]
-    public class QuestionsController(QuestionDbContext db) : ControllerBase
+    public class QuestionsController(QuestionDbContext db, IMessageBus bus, TagService tagService) : ControllerBase
     {
         [Authorize]
         [HttpPost]
         public async Task<ActionResult<Question>> CreateQuestion(CreateQuestionDto questionDto)
         {
-            await ValidateTags(questionDto);
+            if (!await tagService.AreTagsValidAsync(questionDto.Tags))
+            {
+                return BadRequest("One or more tags are invalid.");
+            }
 
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var name = User.FindFirstValue("name");
@@ -34,6 +40,9 @@ namespace QuestionService.Controllers
 
             db.Questions.Add(question);
             await db.SaveChangesAsync();
+
+            await bus.PublishAsync(new QuestionCreated(question.Id, question.Title, 
+                question.Content, question.CreatedAt, question.TagSlugs));
 
             return Created($"/questions/{question.Id}", question);
         }
@@ -79,7 +88,10 @@ namespace QuestionService.Controllers
             if (question.AskerId != userId)
                 return Forbid();
 
-            await ValidateTags(questionDto);
+            if (!await tagService.AreTagsValidAsync(questionDto.Tags))
+            {
+                return BadRequest("One or more tags are invalid.");
+            }
 
             question.Title = questionDto.Title;
             question.Content = questionDto.Content;
@@ -87,6 +99,9 @@ namespace QuestionService.Controllers
             question.UpdatedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync();
+
+            await bus.PublishAsync(new QuestionUpdated(question.Id, question.Title, 
+                question.Content, [.. question.TagSlugs]));
 
             return NoContent();
         }
@@ -107,21 +122,9 @@ namespace QuestionService.Controllers
             db.Questions.Remove(question);
             await db.SaveChangesAsync();
 
+            await bus.PublishAsync(new QuestionDeleted(question.Id));
+
             return NoContent();
-        }
-
-        private async Task<BadRequestObjectResult?> ValidateTags(CreateQuestionDto questionDto)
-        {
-            var validTags = await db.Tags
-                .Where(t => questionDto.Tags.Contains(t.Slug))
-                .ToListAsync();
-
-            var missing = questionDto.Tags.Except([.. validTags.Select(x => x.Slug)]).ToList();
-
-            if (missing.Count != 0)
-                return BadRequest($"Invalid tags: {string.Join(", ", missing)}");
-            
-            return null;
         }
     }
 }
