@@ -20,4 +20,6 @@ public class Question
     public List<string> TagSlugs { get; set; } = [];
     public bool HasAcceptedAnswer { get; set; }
     public int Votes { get; set; }
+    public int AnswerCount { get; set; }
+    public List<Answer> Answers { get; set; } = [];
 }
