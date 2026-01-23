@@ -223,5 +223,22 @@ namespace QuestionService.Controllers
 
             return NoContent();
         }
+
+        [HttpGet("errors")]
+        public ActionResult GetErrorResponses(int code)
+        {
+            ModelState.AddModelError("Problem one", "Validation problem one.");
+            ModelState.AddModelError("Problem two", "Validation problem two.");
+
+            return code switch
+            {
+                400 => BadRequest("This is a bad request example."),
+                401 => Unauthorized(),
+                403 => Forbid(),
+                404 => NotFound(),
+                500 => throw new Exception("This is an internal server error."),
+                _ => ValidationProblem(ModelState)
+            };
+        }
     }
 }
